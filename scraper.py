@@ -209,8 +209,26 @@ def fetch_following(target: str, *, headless: bool = True, scroll_max: int = 15,
                         continue
 
                     cell_text = (cell.inner_text() or "").lower()
-                    if any(kw in cell_text for kw in ["click to follow", "follow back", "suggested for you"]):
+
+                    # Skip non-follow cells (suggestions, promoted, follow-back prompts)
+                    # X injects "You might like" and "Suggested for you" sections
+                    skip_keywords = [
+                        "click to follow", "follow back", "suggested for you",
+                        "you might like", "promoted", "suggested",
+                    ]
+                    if any(kw in cell_text for kw in skip_keywords):
                         continue
+
+                    # Also check if cell is inside a "You might like" section
+                    # by looking at preceding sibling text
+                    try:
+                        parent = cell.evaluate_handle("el => el.parentElement")
+                        if parent:
+                            parent_text = parent.as_element().inner_text().lower()
+                            if "you might like" in parent_text or "suggested" in parent_text:
+                                continue
+                    except Exception:
+                        pass
 
                     display_name = ""
                     name_el = cell.query_selector('div[dir="ltr"] span')
