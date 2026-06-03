@@ -17,48 +17,64 @@ nano .env              # masukin DISCORD_TOKEN + X_SESSION
 - **X_SESSION** — path ke file session X (default: `/root/.x-session.json`)
 
 ### Generate X Session
-
+ 
 Bot butuh cookies login X buat bisa scrape /following list. Generate pakai `login.sh`:
-
+ 
 ```bash
 ./login.sh
 ```
-
+ 
 **Step-by-step:**
 1. Script buka browser Chromium
 2. Login ke akun X/Twitter lu di browser tersebut
 3. Setelah login sukses, balik ke terminal → tekan **Enter**
 4. Session otomatis tersimpan ke `/root/.x-session.json`
 5. Path ini udah di-set di `.env` sebagai `X_SESSION`
-
+ 
 **⚠️ Headless VPS (ga ada display/GUI):**
-
+ 
 Browser gabuka di VPS tanpa desktop. Solusi:
 ```bash
 # 1. Clone repo di local machine (laptop/PC lu)
 git clone https://github.com/irgore/x-tracker-bot.git
 cd x-tracker-bot
 ./setup.sh
-
+ 
 # 2. Generate session di local
 ./login.sh
 # login ke X → tekan Enter → session tersimpan di /root/.x-session.json
-
+ 
 # 3. Copy session file ke VPS
 scp /root/.x-session.json root@ip-vps:/root/.x-session.json
-
+ 
 # 4. Di VPS, pastikan .env udah bener
 nano .env
 # X_SESSION=/root/.x-session.json
 ```
-
+ 
 **Session expired?**
-
+ 
 Kalau bot tiba-tiba detect 0 new follows terus, kemungkinan cookies expired. Generate ulang:
 ```bash
 ./login.sh
 systemctl restart x-tracker
 ```
+
+### Manual Cookie Extraction (Tanpa login.sh)
+
+Gabuka browser di VPS? Ambil cookies manual dari browser lu:
+
+1. Buka `x.com` di browser → **F12** → **Application** → **Cookies** → `https://x.com`
+2. Copy value **auth_token** dan **ct0**
+3. Copy template ke VPS:
+   ```bash
+   cp x-session-template.json /root/.x-session.json
+   nano /root/.x-session.json
+   ```
+4. Ganti `GANTI_INI_DENGAN_AUTH_TOKEN` dan `GANTI_INI_DENGAN_CT0` dengan value asli
+5. Restart bot: `systemctl restart x-tracker`
+
+**⚠️ Cookies expired** dalam 2 minggu - 2 bulan. Kalau bot detect 0 follows, ulangi step di atas.
 
 ## Bikin Discord Bot
 

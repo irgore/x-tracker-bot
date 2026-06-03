@@ -1,0 +1,23 @@
+{
+  "cookies": [
+    {
+      "name": "auth_token",
+      "value": "GANTI_INI_DENGAN_AUTH_TOKEN",
+      "domain": ".x.com",
+      "path": "/",
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "None"
+    },
+    {
+      "name": "ct0",
+      "value": "GANTI_INI_DENGAN_CT0",
+      "domain": ".x.com",
+      "path": "/",
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "None"
+    }
+  ],
+  "origins": []
+}
