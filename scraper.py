@@ -1,0 +1,217 @@
+"""X/Twitter following-list scraper — Playwright-based."""
+import json
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional
+
+import httpx
+
+UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"
+
+
+def enrich_profile(handle: str) -> dict:
+    """Fetch profile via FxTwitter API."""
+    try:
+        r = httpx.get(f"https://api.fxtwitter.com/{handle}", timeout=10, follow_redirects=True)
+        if r.status_code == 200:
+            return r.json().get("user", {})
+    except Exception:
+        pass
+    return {}
+
+
+def _classify_account(followers: int, age_days: int, verified: bool) -> tuple[int, str, str, int]:
+    """Returns (tier_emoji, tier_label, color_hex, discord_color)."""
+    warnings = []
+    if 0 < age_days < 30:
+        warnings.append("⚠️ New account (<30d)")
+    elif 0 < age_days < 90:
+        warnings.append("🕐 Young account (<90d)")
+    if verified:
+        warnings.append("✓ Verified")
+
+    if followers > 100_000:
+        return "🔥", "Mega", "gold", 0xFFD700
+    elif followers > 10_000:
+        return "⭐", "Big", "purple", 0x9B59B6
+    elif followers > 1_000:
+        return "📈", "Mid", "blue", 0x3498DB
+    elif followers > 100:
+        return "🌱", "Small", "green", 0x2ECC71
+    else:
+        if age_days >= 0 and age_days < 90:
+            warnings.append("🚨 Low followers + new = likely throwaway")
+        return "🐣", "Micro", "gray", 0x95A5A6
+
+
+def _account_age_days(joined_str: str) -> int:
+    try:
+        from email.utils import parsedate_to_datetime
+        dt = parsedate_to_datetime(joined_str)
+        return (datetime.now(timezone.utc) - dt).days
+    except Exception:
+        return -1
+
+
+def _years_ago(joined_str: str) -> str:
+    try:
+        from email.utils import parsedate_to_datetime
+        dt = parsedate_to_datetime(joined_str)
+        delta = datetime.now(timezone.utc) - dt
+        years = delta.days // 365
+        if years > 0:
+            return f"{years} year{'s' if years > 1 else ''} ago"
+        months = delta.days // 30
+        if months > 0:
+            return f"{months} month{'s' if months > 1 else ''} ago"
+        return f"{delta.days} day{'s' if delta.days > 1 else ''} ago"
+    except Exception:
+        return joined_str or "unknown"
+
+
+def build_follow_embed(target: str, f: dict) -> dict:
+    """Build a Discord embed dict for a new follow."""
+    import discord
+
+    profile = enrich_profile(f["username"])
+    followers = profile.get("followers", 0)
+    following_count = profile.get("following", 0)
+    tweets = profile.get("tweets", 0)
+    joined = profile.get("joined", "")
+    verified = profile.get("verified", False)
+    avatar = profile.get("avatar_url", "").replace("_normal", "_400x400")
+    banner = profile.get("banner_url", "")
+    bio = profile.get("description", "")
+    name = profile.get("name", f.get("display_name", f["username"]))
+    location = profile.get("location", "")
+
+    age_days = _account_age_days(joined)
+    tier_emoji, tier_label, _, color = _classify_account(followers, age_days, verified)
+
+    warnings = []
+    if 0 < age_days < 30:
+        warnings.append("⚠️ New account (<30d)")
+    elif 0 < age_days < 90:
+        warnings.append("🕐 Young account (<90d)")
+    if verified:
+        warnings.append("✓ Verified")
+    if followers < 100 and 0 < age_days < 90:
+        warnings.append("🚨 Low followers + new = likely throwaway")
+
+    desc_parts = [f"{tier_emoji} **{tier_label}** account"]
+    if warnings:
+        desc_parts.append(" · ".join(warnings))
+    if bio:
+        desc_parts.append(f"\n> {bio[:380]}")
+
+    links = (
+        f"[Profile](https://x.com/{f['username']}) · "
+        f"[Tweets](https://x.com/{f['username']}/with_replies) · "
+        f"[Search](https://x.com/search?q=from%3A{f['username']}) · "
+        f"[Archive](https://archive.org/search?query={f['username']})"
+    )
+    desc_parts.append(links)
+
+    embed = discord.Embed(
+        title=f"{'✓ ' if verified else ''}@{f['username']}",
+        url=f"https://x.com/{f['username']}",
+        description="\n".join(desc_parts),
+        color=color,
+    )
+    embed.set_author(name=f"🟢 @{target} just followed")
+    embed.add_field(name="Name", value=name, inline=True)
+    embed.add_field(name="Followers", value=f"{followers:,}", inline=True)
+    embed.add_field(name="Following", value=f"{following_count:,}", inline=True)
+    embed.add_field(name="Tweets", value=f"{tweets:,}", inline=True)
+    embed.add_field(name="Created", value=_years_ago(joined), inline=True)
+    if location:
+        embed.add_field(name="Location", value=location, inline=True)
+    if avatar:
+        embed.set_thumbnail(url=avatar)
+    if banner:
+        embed.set_image(url=banner)
+    embed.set_footer(text="X Following Tracker")
+    return embed
+
+
+def fetch_following(target: str, *, headless: bool = True, scroll_max: int = 30,
+                    storage_state: Optional[str] = None) -> list[dict]:
+    """Scrape the /following page of a target X user via Playwright."""
+    from playwright.sync_api import sync_playwright
+
+    results = []
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=headless,
+            args=["--disable-blink-features=AutomationControlled"],
+        )
+        ctx_opts = {"user_agent": UA, "viewport": {"width": 1280, "height": 900}}
+        if storage_state and Path(storage_state).exists():
+            context = browser.new_context(storage_state=storage_state, **ctx_opts)
+        else:
+            context = browser.new_context(**ctx_opts)
+
+        page = context.new_page()
+        page.set_extra_http_headers({"Accept-Language": "en-US,en;q=0.9"})
+        url = f"https://x.com/{target}/following"
+
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+            page.wait_for_timeout(3000)
+        except Exception as e:
+            print(f"  [!] Failed to load {url}: {e}", file=sys.stderr)
+            browser.close()
+            return []
+
+        empty_streak = 0
+        for i in range(scroll_max):
+            cells = page.query_selector_all('[data-testid="UserCell"]')
+            new_this_scroll = 0
+            for cell in cells:
+                try:
+                    links = cell.query_selector_all('a[href^="/"]')
+                    if not links:
+                        continue
+                    href = links[0].get_attribute("href") or ""
+                    handle = href.strip("/").split("/")[0]
+                    if not handle or handle in ("i", "search", "settings", "explore", "home"):
+                        continue
+
+                    # Skip suggestion cells
+                    cell_text = (cell.inner_text() or "").lower()
+                    if any(kw in cell_text for kw in ["click to follow", "follow back", "suggested for you"]):
+                        continue
+
+                    display_name = ""
+                    name_el = cell.query_selector('div[dir="ltr"] span')
+                    if name_el:
+                        display_name = (name_el.inner_text() or "").strip()
+
+                    bio = ""
+                    bio_els = cell.query_selector_all('div[dir="auto"]')
+                    if bio_els:
+                        bio = (bio_els[-1].inner_text() or "").strip()[:300]
+
+                    avatar = ""
+                    img_el = cell.query_selector('img[src*="profile_images"]')
+                    if img_el:
+                        avatar = img_el.get_attribute("src") or ""
+
+                    entry = {"username": handle.lower(), "display_name": display_name, "bio": bio, "avatar": avatar}
+                    if entry not in results:
+                        results.append(entry)
+                        new_this_scroll += 1
+                except Exception:
+                    continue
+
+            empty_streak = 0 if new_this_scroll > 0 else empty_streak + 1
+            if empty_streak >= 3:
+                break
+
+            page.evaluate("window.scrollBy(0, 800)")
+            page.wait_for_timeout(1500)
+
+        browser.close()
+    return results

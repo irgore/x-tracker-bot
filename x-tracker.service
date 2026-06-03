@@ -1,0 +1,16 @@
+[Unit]
+Description=X Following Tracker Discord Bot
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/x-tracker-bot
+ExecStart=/root/x-tracker-bot/.venv/bin/python3 /root/x-tracker-bot/main.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
