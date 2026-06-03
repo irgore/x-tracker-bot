@@ -5,11 +5,27 @@ Discord bot yang track siapa yang di-follow akun X tertentu. Alerts ke Discord c
 ## Setup (VPS baru)
 
 ```bash
-chmod +x setup.sh run.sh
+git clone https://github.com/irgore/x-tracker-bot.git
+cd x-tracker-bot
 ./setup.sh
 nano .env          # masukin DISCORD_TOKEN
 ./run.sh
 ```
+
+## Bikin Discord Bot
+
+1. Buka https://discord.com/developers/applications
+2. **New Application** → kasih nama (misal `X Tracker`) → **Create**
+3. Tab **Bot**:
+   - **Reset Token** → copy token (ini yang masuk ke `.env`)
+   - Scroll ke bawah, enable **Message Content Intent**
+4. Tab **OAuth2** → **URL Generator**:
+   - **Scopes**: centang `bot` + `applications.commands`
+   - **Bot Permissions**: centang:
+     - `Send Messages`
+     - `Embed Links`
+     - `Use Slash Commands`
+5. Copy URL yang muncul di bawah → buka di browser → invite ke server lu
 
 ## Slash Commands
 
@@ -21,12 +37,21 @@ nano .env          # masukin DISCORD_TOKEN
 | `/check @user` | Manual check sekarang |
 | `/xhelp` | Help |
 
-## Run as Service (systemd)
+## Run as Service (24/7)
 
 ```bash
-sudo cp x-tracker.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now x-tracker
+cp x-tracker.service /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now x-tracker
+
+# cek status
+systemctl status x-tracker
+
+# lihat log
+journalctl -u x-tracker -f
+
+# restart setelah update
+systemctl restart x-tracker
 ```
 
 ## Files
