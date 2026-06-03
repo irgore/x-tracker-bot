@@ -124,10 +124,14 @@ async def before_poll():
     username="X username (without @)",
     channel="Channel to send alerts to (default: this channel)",
 )
-async def track_cmd(interaction: discord.Interaction, username: str, channel: discord.TextChannel = None):
+async def track_cmd(interaction: discord.Interaction, username: str, channel: discord.TextChannel = None):  # noqa: E501
     await interaction.response.defer(ephemeral=True)
     target = username.lower().lstrip("@")
-    ch = channel or interaction.channel
+    if channel:
+        ch = channel
+    else:
+        default_ch_id = await db.get_default_channel(interaction.guild_id)
+        ch = bot.get_channel(default_ch_id) if default_ch_id else interaction.channel
 
     added = await db.add_tracking(interaction.guild_id, ch.id, target)
     if not added:
@@ -146,6 +150,16 @@ async def track_cmd(interaction: discord.Interaction, username: str, channel: di
         await interaction.followup.send(f"❌ Failed to scrape @{target} — check if the account exists.", ephemeral=True)
     elif code == 0:
         await interaction.followup.send(f"📌 Baseline saved for @{target}. New follows will be reported.", ephemeral=True)
+
+
+@bot.tree.command(name="setchannel", description="Set default channel for all tracking alerts")
+@discord.app_commands.describe(channel="Channel to send alerts to")
+async def setchannel_cmd(interaction: discord.Interaction, channel: discord.TextChannel):
+    await db.set_default_channel(interaction.guild_id, channel.id)
+    await interaction.response.send_message(
+        f"✅ Default alert channel set to {channel.mention}. All new `/track` will use this channel.",  # noqa: E501
+        ephemeral=True,
+    )
 
 
 @bot.tree.command(name="untrack", description="Stop tracking an X user")
@@ -214,6 +228,7 @@ async def help_cmd(interaction: discord.Interaction):
         color=0x1DA1F2,
     )
     embed.add_field(name="/track @user", value="Start tracking a user's following", inline=False)
+    embed.add_field(name="/setchannel #channel", value="Set default channel for alerts", inline=False)
     embed.add_field(name="/untrack @user", value="Stop tracking", inline=False)
     embed.add_field(name="/tracked", value="List all tracked users", inline=False)
     embed.add_field(name="/check @user", value="Manual check now", inline=False)

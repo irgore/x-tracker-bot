@@ -24,6 +24,10 @@ async def get_db() -> aiosqlite.Connection:
                 first_seen_at TEXT,
                 last_check_at TEXT
             );
+            CREATE TABLE IF NOT EXISTS guild_settings (
+                guild_id INTEGER PRIMARY KEY,
+                default_channel_id INTEGER
+            );
         """)
         await _db.commit()
     return _db
@@ -82,6 +86,27 @@ async def get_state(username: str) -> dict:
             "last_check_at": row["last_check_at"],
         }
     return {"following": {}, "first_seen_at": None, "last_check_at": None}
+
+
+async def set_default_channel(guild_id: int, channel_id: int):
+    db = await get_db()
+    await db.execute(
+        """INSERT INTO guild_settings (guild_id, default_channel_id)
+           VALUES (?, ?)
+           ON CONFLICT(guild_id) DO UPDATE SET default_channel_id = excluded.default_channel_id""",
+        (guild_id, channel_id),
+    )
+    await db.commit()
+
+
+async def get_default_channel(guild_id: int) -> int | None:
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT default_channel_id FROM guild_settings WHERE guild_id = ?",
+        (guild_id,),
+    )
+    row = await cur.fetchone()
+    return row["default_channel_id"] if row else None
 
 
 async def save_state(username: str, following: dict, first_seen_at: str = None):
