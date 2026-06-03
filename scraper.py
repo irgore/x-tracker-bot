@@ -1,4 +1,4 @@
-"""X/Twitter following-list scraper — Playwright-based."""
+"""X/Twitter following-list scraper — Playwright-based (optimized for speed)."""
 import json
 import sys
 import time
@@ -24,14 +24,6 @@ def enrich_profile(handle: str) -> dict:
 
 def _classify_account(followers: int, age_days: int, verified: bool) -> tuple[int, str, str, int]:
     """Returns (tier_emoji, tier_label, color_hex, discord_color)."""
-    warnings = []
-    if 0 < age_days < 30:
-        warnings.append("⚠️ New account (<30d)")
-    elif 0 < age_days < 90:
-        warnings.append("🕐 Young account (<90d)")
-    if verified:
-        warnings.append("✓ Verified")
-
     if followers > 100_000:
         return "🔥", "Mega", "gold", 0xFFD700
     elif followers > 10_000:
@@ -41,8 +33,6 @@ def _classify_account(followers: int, age_days: int, verified: bool) -> tuple[in
     elif followers > 100:
         return "🌱", "Small", "green", 0x2ECC71
     else:
-        if age_days >= 0 and age_days < 90:
-            warnings.append("🚨 Low followers + new = likely throwaway")
         return "🐣", "Micro", "gray", 0x95A5A6
 
 
@@ -136,12 +126,16 @@ def build_follow_embed(target: str, f: dict) -> dict:
     return embed
 
 
-def fetch_following(target: str, *, headless: bool = True, scroll_max: int = 30,
+def fetch_following(target: str, *, headless: bool = True, scroll_max: int = 15,
                     storage_state: Optional[str] = None) -> list[dict]:
-    """Scrape the /following page of a target X user via Playwright."""
+    """Scrape the /following page of a target X user via Playwright.
+    
+    Optimized for speed: shorter waits, fewer scrolls, early exit.
+    """
     from playwright.sync_api import sync_playwright
 
     results = []
+    seen = set()
     with sync_playwright() as p:
         browser = p.chromium.launch(
             headless=headless,
@@ -158,10 +152,20 @@ def fetch_following(target: str, *, headless: bool = True, scroll_max: int = 30,
         url = f"https://x.com/{target}/following"
 
         try:
-            page.goto(url, wait_until="domcontentloaded", timeout=30_000)
-            page.wait_for_timeout(3000)
+            page.goto(url, wait_until="domcontentloaded", timeout=20_000)
+            # Wait for UserCell to appear (max 10s) instead of fixed sleep
+            try:
+                page.wait_for_selector('[data-testid="UserCell"]', timeout=10_000)
+            except Exception:
+                page.wait_for_timeout(3000)  # fallback
         except Exception as e:
             print(f"  [!] Failed to load {url}: {e}", file=sys.stderr)
+            browser.close()
+            return []
+
+        # Check if redirected to profile (not logged in)
+        if "/following" not in page.url:
+            print(f"  [!] Redirected to {page.url} — login required", file=sys.stderr)
             browser.close()
             return []
 
@@ -178,8 +182,9 @@ def fetch_following(target: str, *, headless: bool = True, scroll_max: int = 30,
                     handle = href.strip("/").split("/")[0]
                     if not handle or handle in ("i", "search", "settings", "explore", "home"):
                         continue
+                    if handle in seen:
+                        continue
 
-                    # Skip suggestion cells
                     cell_text = (cell.inner_text() or "").lower()
                     if any(kw in cell_text for kw in ["click to follow", "follow back", "suggested for you"]):
                         continue
@@ -199,19 +204,18 @@ def fetch_following(target: str, *, headless: bool = True, scroll_max: int = 30,
                     if img_el:
                         avatar = img_el.get_attribute("src") or ""
 
-                    entry = {"username": handle.lower(), "display_name": display_name, "bio": bio, "avatar": avatar}
-                    if entry not in results:
-                        results.append(entry)
-                        new_this_scroll += 1
+                    seen.add(handle)
+                    results.append({"username": handle.lower(), "display_name": display_name, "bio": bio, "avatar": avatar})
+                    new_this_scroll += 1
                 except Exception:
                     continue
 
             empty_streak = 0 if new_this_scroll > 0 else empty_streak + 1
-            if empty_streak >= 3:
+            if empty_streak >= 2:  # reduced from 3
                 break
 
             page.evaluate("window.scrollBy(0, 800)")
-            page.wait_for_timeout(1500)
+            page.wait_for_timeout(1000)  # reduced from 1500
 
         browser.close()
     return results

@@ -10,7 +10,7 @@ import discord
 from discord.ext import commands, tasks
 
 import db
-from config import DISCORD_TOKEN, POLL_INTERVAL, STATE_DIR, HISTORY_FILE, MAX_SCROLL
+from config import DISCORD_TOKEN, POLL_INTERVAL, STATE_DIR, HISTORY_FILE, MAX_SCROLL, X_SESSION
 from scraper import fetch_following, build_follow_embed
 
 log = logging.getLogger("x-tracker")
@@ -41,7 +41,7 @@ async def _track_one(target: str) -> tuple[int, list[dict]]:
 
     try:
         new_list = await loop.run_in_executor(
-            None, lambda: fetch_following(target, headless=True, scroll_max=MAX_SCROLL)
+            None, lambda: fetch_following(target, headless=True, scroll_max=MAX_SCROLL, storage_state=X_SESSION)
         )
     except Exception as e:
         log.error(f"[!] Scrape failed for @{target}: {e}")
