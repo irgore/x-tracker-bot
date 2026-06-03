@@ -18,17 +18,46 @@ nano .env              # masukin DISCORD_TOKEN + X_SESSION
 
 ### Generate X Session
 
+Bot butuh cookies login X buat bisa scrape /following list. Generate pakai `login.sh`:
+
 ```bash
 ./login.sh
 ```
 
-Browser kebuka → login ke X → tekan Enter → session tersimpan.
+**Step-by-step:**
+1. Script buka browser Chromium
+2. Login ke akun X/Twitter lu di browser tersebut
+3. Setelah login sukses, balik ke terminal → tekan **Enter**
+4. Session otomatis tersimpan ke `/root/.x-session.json`
+5. Path ini udah di-set di `.env` sebagai `X_SESSION`
 
-⚠️ Di headless VPS, generate di local machine dulu terus copy:
+**⚠️ Headless VPS (ga ada display/GUI):**
+
+Browser gabuka di VPS tanpa desktop. Solusi:
 ```bash
-# di local
+# 1. Clone repo di local machine (laptop/PC lu)
+git clone https://github.com/irgore/x-tracker-bot.git
+cd x-tracker-bot
+./setup.sh
+
+# 2. Generate session di local
 ./login.sh
-scp /root/.x-session.json root@vps:/root/.x-session.json
+# login ke X → tekan Enter → session tersimpan di /root/.x-session.json
+
+# 3. Copy session file ke VPS
+scp /root/.x-session.json root@ip-vps:/root/.x-session.json
+
+# 4. Di VPS, pastikan .env udah bener
+nano .env
+# X_SESSION=/root/.x-session.json
+```
+
+**Session expired?**
+
+Kalau bot tiba-tiba detect 0 new follows terus, kemungkinan cookies expired. Generate ulang:
+```bash
+./login.sh
+systemctl restart x-tracker
 ```
 
 ## Bikin Discord Bot
