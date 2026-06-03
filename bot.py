@@ -101,7 +101,7 @@ async def poll_following():
                     try:
                         embed = build_follow_embed(target, follow)
                         await channel.send(embed=embed)
-                        await asyncio.sleep(0.3)
+                        await asyncio.sleep(1.5)  # pace FxTwitter calls
                     except Exception as e:
                         log.error(f"Failed to send embed: {e}")
 
@@ -211,9 +211,12 @@ async def check_cmd(interaction: discord.Interaction, username: str):
                 channel = bot.get_channel(entry["channel_id"])
                 if channel:
                     for follow in new_follows:
-                        embed = build_follow_embed(target, follow)
-                        await channel.send(embed=embed)
-                        await asyncio.sleep(0.3)
+                        try:
+                            embed = build_follow_embed(target, follow)
+                            await channel.send(embed=embed)
+                            await asyncio.sleep(1.5)
+                        except Exception as e:
+                            log.error(f"Failed to send embed: {e}")
     else:
         state = await db.get_state(target)
         count = len(state["following"])

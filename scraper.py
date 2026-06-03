@@ -12,13 +12,33 @@ UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chr
 
 
 def enrich_profile(handle: str) -> dict:
-    """Fetch profile via FxTwitter API."""
-    try:
-        r = httpx.get(f"https://api.fxtwitter.com/{handle}", timeout=10, follow_redirects=True)
-        if r.status_code == 200:
-            return r.json().get("user", {})
-    except Exception:
-        pass
+    """Fetch profile via FxTwitter API with retry."""
+    import logging
+    log = logging.getLogger("x-tracker")
+    for attempt in range(3):
+        try:
+            r = httpx.get(f"https://api.fxtwitter.com/{handle}", timeout=15, follow_redirects=True)
+            if r.status_code == 200:
+                data = r.json()
+                user = data.get("user", {})
+                if user:
+                    # FxTwitter puts verified inside verification object
+                    if "verified" not in user and "verification" in user:
+                        user["verified"] = user["verification"].get("verified", False)
+                    log.info(f"✅ FxTwitter OK for @{handle}: {user.get('followers', 0)} followers")
+                    return user
+                else:
+                    log.warning(f"⚠️ FxTwitter returned no user data for @{handle}: {data.get('message', 'unknown')}")
+            elif r.status_code == 429:
+                log.warning(f"⚠️ FxTwitter rate-limited for @{handle}, attempt {attempt+1}/3")
+                import time; time.sleep(2 * (attempt + 1))
+                continue
+            else:
+                log.warning(f"⚠️ FxTwitter {r.status_code} for @{handle}: {r.text[:200]}")
+        except Exception as e:
+            log.error(f"❌ FxTwitter error for @{handle} (attempt {attempt+1}/3): {e}")
+            import time; time.sleep(1)
+    log.error(f"❌ FxTwitter failed for @{handle} after 3 attempts")
     return {}
 
 
@@ -66,15 +86,18 @@ def build_follow_embed(target: str, f: dict) -> dict:
     import discord
 
     profile = enrich_profile(f["username"])
+    if not profile:
+        import logging
+        logging.getLogger("x-tracker").warning(f"⚠️ FxTwitter empty for @{f['username']}, using scraped data only")
     followers = profile.get("followers", 0)
     following_count = profile.get("following", 0)
     tweets = profile.get("tweets", 0)
     joined = profile.get("joined", "")
     verified = profile.get("verified", False)
-    avatar = profile.get("avatar_url", "").replace("_normal", "_400x400")
+    avatar = profile.get("avatar_url", "").replace("_normal", "_400x400") or f.get("avatar", "").replace("_normal", "_400x400")
     banner = profile.get("banner_url", "")
-    bio = profile.get("description", "")
-    name = profile.get("name", f.get("display_name", f["username"]))
+    bio = profile.get("description", "") or f.get("bio", "")
+    name = profile.get("name", "") or f.get("display_name", f["username"])
     location = profile.get("location", "")
 
     age_days = _account_age_days(joined)
